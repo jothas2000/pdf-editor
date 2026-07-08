@@ -9,7 +9,6 @@ venv/
 env/
 
 *.pdf
-!sample.pdf
 
 .DS_Store
 Thumbs.db

@@ -1,11 +1,13 @@
-# pdf-editor
+# Visual PDF Editor
 
-Utilitario para edicao basica de PDFs via linha de comando usando PyMuPDF.
+Editor grafico de PDF com interface Tkinter. Abra um PDF, clique em qualquer ponto da pagina e digite texto para inseri-lo exatamente na posicao clicada.
 
 ## Funcionalidades
 
-- Adicionar texto como marca d'agua em qualquer pagina
-- Rotacionar paginas individualmente (0/90/180/270 graus)
+- Abrir e visualizar paginas de PDF com zoom adaptativo
+- Clicar em qualquer ponto da pagina para inserir texto
+- Conversao automatica de coordenadas da tela para coordenadas do PDF
+- Salvamento do PDF editado com compression
 
 ## Instalacao
 
@@ -13,20 +15,14 @@ Utilitario para edicao basica de PDFs via linha de comando usando PyMuPDF.
 pip install -r requirements.txt
 ```
 
-## Uso
-
-### Adicionar marca d'agua
+## Como usar
 
 ```bash
-python pdf_editor.py watermark entrada.pdf saida.pdf "RASCUNHO" --page 0 --x 200 --y 300 --size 48 --opacity 0.2
+python pdf_gui_editor.py
 ```
 
-### Rotacionar pagina
-
-```bash
-python pdf_editor.py rotate entrada.pdf saida.pdf 90 --page 0
-```
-
-## Contribuindo
-
-Sinta-se livre para abrir issues e PRs.
+1. Clique em **Abrir PDF** e selecione o arquivo.
+2. Clique em qualquer lugar da pagina exibida.
+3. Digite o texto desejado na caixa de dialogo.
+4. O texto aparece imediatamente na posicao clicada.
+5. Clique em **Salvar PDF** para exportar o resultado.
