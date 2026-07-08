@@ -9,7 +9,16 @@ class VisualPDFEditor:
     def __init__(self, master):
         self.master = master
         master.title("Visual PDF Editor")
-        master.geometry("900x700")
+
+        try:
+            master.state('zoomed')
+        except tk.TclError:
+            try:
+                master.attributes('-zoomed', True)
+            except tk.TclError:
+                w = master.winfo_screenwidth()
+                h = master.winfo_screenheight()
+                master.geometry(f"{w}x{h}+0+0")
 
         self.pdf_document = None
         self.filepath = None
