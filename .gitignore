@@ -1,14 +1,30 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.egg-info/
+dist/
+build/
 
+# Virtual environment
 venv/
-.env
-.venv
+.venv/
 env/
 
+# Environment
+.env
+
+# PDF (ignora arquivos .pdf soltos mas permite tracking via -f)
 *.pdf
 
+# Temp files
+*.tmp
+
+# OS metadata
 .DS_Store
 Thumbs.db
+
+# IDE
+.vscode/
+.idea/
