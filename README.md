@@ -27,13 +27,6 @@ python pdf_editor.py watermark entrada.pdf saida.pdf "RASCUNHO" --page 0 --x 200
 python pdf_editor.py rotate entrada.pdf saida.pdf 90 --page 0
 ```
 
-## Commits de setup do repositorio
+## Contribuindo
 
-```bash
-git init
-git add .
-git commit -m "feat: initial commit with pdf basic manipulation"
-git branch -M main
-git remote add origin git@github.com:seu-usuario/pdf-editor.git
-git push -u origin main
-```
+Sinta-se livre para abrir issues e PRs.
