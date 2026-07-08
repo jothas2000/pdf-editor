@@ -53,6 +53,18 @@ python pdf_gui_editor.py
 | Scroll          | Rolagem vertical         |
 | Botão do meio   | Arrastar tela (Pan)      |
 
+
+## Compilação e Deploy (Release)
+
+```bash
+pip install pyinstaller
+pyinstaller --noconsole --onefile pdf_gui_editor.py
+```
+
+- O executável será gerado em `dist/pdf_gui_editor.exe`.
+- Acesse o repositório no GitHub, vá em **Releases** > **Create a new release**.
+- Anexe o arquivo `dist/pdf_gui_editor.exe` manualmente e publique a release.
+
 ## Autor
 
 **Thales do Prado Menendez** — Ciência da Computação (UTFPR)
