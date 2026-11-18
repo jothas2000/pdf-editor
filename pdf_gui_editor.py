@@ -1,4 +1,5 @@
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, simpledialog, messagebox, colorchooser
 import os
 import fitz
@@ -53,6 +54,12 @@ class VisualPDFEditor:
         return "#{:02x}{:02x}{:02x}".format(
             int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)
         )
+
+    def _font_spec(self, fontsize):
+        # Tamanho NEGATIVO = pixels no Tk (positivo seria pontos da tela, que o
+        # Tk multiplica pelo DPI do monitor: 12 pt viram 16 px a 96 dpi).
+        # A pagina e renderizada a 72 dpi * zoom, entao 1 pt do PDF = zoom px.
+        return ("Helvetica", -max(1, round(fontsize * self.zoom_level)))
 
     def _build_ui(self):
         toolbar = tk.Frame(self.master)
@@ -284,7 +291,7 @@ class VisualPDFEditor:
                 cid = self.canvas.create_text(
                     action['canvas_x'], action['canvas_y'],
                     text=action['text'],
-                    font=("Helvetica", int(action['fontsize'] * self.zoom_level)),
+                    font=self._font_spec(action['fontsize']),
                     fill=self._rgb_to_hex(action['color']),
                     anchor="nw",
                     tags="floating"
@@ -430,7 +437,7 @@ class VisualPDFEditor:
         cid = self.canvas.create_text(
             canvas_x, canvas_y,
             text=text,
-            font=("Helvetica", int(fontsize * self.zoom_level)),
+            font=self._font_spec(fontsize),
             fill=self._rgb_to_hex(color),
             anchor="nw",
             tags="floating"
@@ -619,7 +626,7 @@ class VisualPDFEditor:
             action['fontsize'] = new_size
             self.canvas.itemconfig(
                 action['canvas_id'],
-                font=("Helvetica", int(new_size * self.zoom_level))
+                font=self._font_spec(new_size)
             )
 
         color_rgb, _ = colorchooser.askcolor(
@@ -697,8 +704,16 @@ class VisualPDFEditor:
         pdf_y = action['canvas_y'] / self.zoom_level
 
         if action['type'] == 'text':
+            # No canvas o texto usa anchor="nw": (canvas_x, canvas_y) e o TOPO
+            # da caixa do texto. Ja o insert_text posiciona pela LINHA DE BASE
+            # (onde as letras "pisam"). Sem somar o ascent da fonte, o texto
+            # salvo sobe quase uma linha inteira.
+            ascent_px = tkfont.Font(
+                font=self._font_spec(action['fontsize'])
+            ).metrics("ascent")
+            baseline_y = (action['canvas_y'] + ascent_px) / self.zoom_level
             page.insert_text(
-                fitz.Point(pdf_x, pdf_y),
+                fitz.Point(pdf_x, baseline_y),
                 action['text'],
                 fontsize=action['fontsize'],
                 color=action['color']
