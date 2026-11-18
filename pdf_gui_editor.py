@@ -2,14 +2,17 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, simpledialog, messagebox, colorchooser
 import os
+import sys
 import fitz
 from PIL import Image, ImageTk
+
+__version__ = "1.0.1"
 
 
 class VisualPDFEditor:
     def __init__(self, master):
         self.master = master
-        master.title("Visual PDF Editor")
+        master.title(f"Visual PDF Editor {__version__}")
 
         try:
             master.state('zoomed')
@@ -60,6 +63,25 @@ class VisualPDFEditor:
         # Tk multiplica pelo DPI do monitor: 12 pt viram 16 px a 96 dpi).
         # A pagina e renderizada a 72 dpi * zoom, entao 1 pt do PDF = zoom px.
         return ("Helvetica", -max(1, round(fontsize * self.zoom_level)))
+
+    # Posicoes e tamanhos dos objetos sao guardados SEMPRE em pontos do
+    # PDF (72 dpi). O canvas desenha a pagina a 72 dpi * zoom, entao a
+    # conversao entre os dois espacos e so uma multiplicacao pelo zoom.
+    # Guardar em pixels de tela faria os objetos escorregarem em relacao
+    # ao conteudo da pagina a cada mudanca de zoom.
+    def _to_canvas(self, pdf_value):
+        return pdf_value * self.zoom_level
+
+    def _to_pdf(self, canvas_value):
+        return canvas_value / self.zoom_level
+
+    def _ascent_pt(self, fontsize):
+        # Altura da linha de base ao topo das letras, em pontos do PDF.
+        # Medida no tamanho SEM zoom: o PDF salvo usa o fontsize real, e
+        # nao o arredondamento em pixels que aparece na tela.
+        return tkfont.Font(
+            font=("Helvetica", -max(1, round(fontsize)))
+        ).metrics("ascent")
 
     def _build_ui(self):
         toolbar = tk.Frame(self.master)
@@ -160,13 +182,24 @@ class VisualPDFEditor:
 
     # ─── Zoom ─────────────────────────────────────────────────────
 
-    def zoom_in(self, event=None):
-        self.zoom_level += 0.25
+    # Limites do zoom: acima de 8x o get_pixmap aloca uma imagem enorme
+    # e o app pode travar ou estourar a memoria.
+    ZOOM_MIN = 0.25
+    ZOOM_MAX = 8.0
+    ZOOM_STEP = 0.25
+
+    def _set_zoom(self, value):
+        new_zoom = min(self.ZOOM_MAX, max(self.ZOOM_MIN, value))
+        if new_zoom == self.zoom_level:
+            return
+        self.zoom_level = new_zoom
         self.render_page()
 
+    def zoom_in(self, event=None):
+        self._set_zoom(self.zoom_level + self.ZOOM_STEP)
+
     def zoom_out(self, event=None):
-        self.zoom_level = max(0.25, self.zoom_level - 0.25)
-        self.render_page()
+        self._set_zoom(self.zoom_level - self.ZOOM_STEP)
 
     def mouse_wheel_zoom(self, event):
         if event.delta:
@@ -174,11 +207,8 @@ class VisualPDFEditor:
         else:
             zoom_in = event.num == 4
 
-        if zoom_in:
-            self.zoom_level += 0.25
-        else:
-            self.zoom_level = max(0.25, self.zoom_level - 0.25)
-        self.render_page()
+        step = self.ZOOM_STEP if zoom_in else -self.ZOOM_STEP
+        self._set_zoom(self.zoom_level + step)
 
     # ─── Scroll ───────────────────────────────────────────────────
 
@@ -289,7 +319,8 @@ class VisualPDFEditor:
 
             if action['type'] == 'text':
                 cid = self.canvas.create_text(
-                    action['canvas_x'], action['canvas_y'],
+                    self._to_canvas(action['pdf_x']),
+                    self._to_canvas(action['pdf_y']),
                     text=action['text'],
                     font=self._font_spec(action['fontsize']),
                     fill=self._rgb_to_hex(action['color']),
@@ -302,14 +333,15 @@ class VisualPDFEditor:
                 self._create_floating_image(action)
 
     def _create_floating_image(self, action):
-        disp_w = max(1, int(action['render_w'] * self.zoom_level))
-        disp_h = max(1, int(action['render_h'] * self.zoom_level))
+        disp_w = max(1, round(self._to_canvas(action['pdf_w'])))
+        disp_h = max(1, round(self._to_canvas(action['pdf_h'])))
         img_obj = Image.open(action['filepath'])
         img_obj = img_obj.resize((disp_w, disp_h), Image.LANCZOS)
         tk_img = ImageTk.PhotoImage(img_obj)
 
         cid = self.canvas.create_image(
-            action['canvas_x'], action['canvas_y'],
+            self._to_canvas(action['pdf_x']),
+            self._to_canvas(action['pdf_y']),
             image=tk_img, anchor="nw", tags="floating"
         )
         self._floating_images[cid] = tk_img
@@ -365,22 +397,26 @@ class VisualPDFEditor:
     def _create_object(self, event):
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
+        pdf_x = self._to_pdf(canvas_x)
+        pdf_y = self._to_pdf(canvas_y)
 
         if self.pending_image:
             img_pil = Image.open(self.pending_image)
             orig_w, orig_h = img_pil.size
 
+            # Tamanho inicial em pontos do PDF: 1 px da imagem vira 1 pt,
+            # limitado a 400 pt no maior lado.
             max_init = 400
             if orig_w > max_init or orig_h > max_init:
                 ratio = min(max_init / orig_w, max_init / orig_h)
-                render_w = int(orig_w * ratio)
-                render_h = int(orig_h * ratio)
+                pdf_w = orig_w * ratio
+                pdf_h = orig_h * ratio
             else:
-                render_w = orig_w
-                render_h = orig_h
+                pdf_w = float(orig_w)
+                pdf_h = float(orig_h)
 
-            disp_w = max(1, int(render_w * self.zoom_level))
-            disp_h = max(1, int(render_h * self.zoom_level))
+            disp_w = max(1, round(self._to_canvas(pdf_w)))
+            disp_h = max(1, round(self._to_canvas(pdf_h)))
             img_pil = img_pil.resize((disp_w, disp_h), Image.LANCZOS)
             tk_img = ImageTk.PhotoImage(img_pil)
 
@@ -394,12 +430,12 @@ class VisualPDFEditor:
             self.actions.append({
                 'type': 'image',
                 'page': self.current_page,
-                'canvas_x': canvas_x,
-                'canvas_y': canvas_y,
+                'pdf_x': pdf_x,
+                'pdf_y': pdf_y,
                 'img_width': orig_w,
                 'img_height': orig_h,
-                'render_w': render_w,
-                'render_h': render_h,
+                'pdf_w': pdf_w,
+                'pdf_h': pdf_h,
                 'filepath': self.pending_image,
                 'canvas_id': cid
             })
@@ -426,7 +462,7 @@ class VisualPDFEditor:
 
         text = simpledialog.askstring(
             "Inserir Texto",
-            f"Texto na posicao ({canvas_x:.0f}, {canvas_y:.0f}):",
+            f"Texto na posicao ({pdf_x:.0f}, {pdf_y:.0f}) da pagina:",
             parent=self.master
         )
         if not text:
@@ -447,8 +483,8 @@ class VisualPDFEditor:
         self.actions.append({
             'type': 'text',
             'page': self.current_page,
-            'canvas_x': canvas_x,
-            'canvas_y': canvas_y,
+            'pdf_x': pdf_x,
+            'pdf_y': pdf_y,
             'text': text,
             'fontsize': fontsize,
             'color': color,
@@ -457,8 +493,8 @@ class VisualPDFEditor:
 
     def _update_floating_image_display(self, action):
         canvas_id = action['canvas_id']
-        disp_w = max(1, int(action['render_w'] * self.zoom_level))
-        disp_h = max(1, int(action['render_h'] * self.zoom_level))
+        disp_w = max(1, round(self._to_canvas(action['pdf_w'])))
+        disp_h = max(1, round(self._to_canvas(action['pdf_h'])))
         img_obj = Image.open(action['filepath'])
         img_obj = img_obj.resize((disp_w, disp_h), Image.LANCZOS)
         tk_img = ImageTk.PhotoImage(img_obj)
@@ -474,18 +510,20 @@ class VisualPDFEditor:
                 self._resize_data = {
                     'item_id': item_id,
                     'handle': handle_pos,
-                    'start_x': action['canvas_x'],
-                    'start_y': action['canvas_y'],
-                    'start_w': action['render_w'],
-                    'start_h': action['render_h'],
+                    'start_x': action['pdf_x'],
+                    'start_y': action['pdf_y'],
+                    'start_w': action['pdf_w'],
+                    'start_h': action['pdf_h'],
                     'aspect': action['img_width'] / action['img_height']
                 }
                 break
 
     def _do_resize(self, event):
         data = self._resize_data
-        cx = self.canvas.canvasx(event.x)
-        cy = self.canvas.canvasy(event.y)
+        # O estado inicial e o resultado ficam em pontos do PDF; so o
+        # ponteiro do mouse chega em pixels de tela.
+        cx = self._to_pdf(self.canvas.canvasx(event.x))
+        cy = self._to_pdf(self.canvas.canvasy(event.y))
 
         x1, y1 = data['start_x'], data['start_y']
         x2 = x1 + data['start_w']
@@ -512,11 +550,14 @@ class VisualPDFEditor:
 
         for action in self.actions:
             if action.get('canvas_id') == data['item_id'] and action['type'] == 'image':
-                action['canvas_x'] = nx
-                action['canvas_y'] = ny
-                action['render_w'] = nw
-                action['render_h'] = nh
-                self.canvas.coords(data['item_id'], nx, ny)
+                action['pdf_x'] = nx
+                action['pdf_y'] = ny
+                action['pdf_w'] = nw
+                action['pdf_h'] = nh
+                self.canvas.coords(
+                    data['item_id'],
+                    self._to_canvas(nx), self._to_canvas(ny)
+                )
                 self._update_floating_image_display(action)
                 self._clear_selection()
                 self._select_object(data['item_id'])
@@ -586,8 +627,8 @@ class VisualPDFEditor:
         for action in self.actions:
             if action.get('canvas_id') == item_id:
                 x, y = self.canvas.coords(item_id)
-                action['canvas_x'] = x
-                action['canvas_y'] = y
+                action['pdf_x'] = self._to_pdf(x)
+                action['pdf_y'] = self._to_pdf(y)
                 break
 
         self._drag_data = None
@@ -700,18 +741,17 @@ class VisualPDFEditor:
     # ─── Queima (burn) ───────────────────────────────────────────
 
     def _burn_action_to_page(self, page, action):
-        pdf_x = action['canvas_x'] / self.zoom_level
-        pdf_y = action['canvas_y'] / self.zoom_level
+        # As acoes ja guardam pontos do PDF, entao o resultado salvo nao
+        # depende do zoom em que a pagina estava na tela.
+        pdf_x = action['pdf_x']
+        pdf_y = action['pdf_y']
 
         if action['type'] == 'text':
-            # No canvas o texto usa anchor="nw": (canvas_x, canvas_y) e o TOPO
-            # da caixa do texto. Ja o insert_text posiciona pela LINHA DE BASE
+            # No canvas o texto usa anchor="nw": (pdf_x, pdf_y) e o TOPO da
+            # caixa do texto. Ja o insert_text posiciona pela LINHA DE BASE
             # (onde as letras "pisam"). Sem somar o ascent da fonte, o texto
             # salvo sobe quase uma linha inteira.
-            ascent_px = tkfont.Font(
-                font=self._font_spec(action['fontsize'])
-            ).metrics("ascent")
-            baseline_y = (action['canvas_y'] + ascent_px) / self.zoom_level
+            baseline_y = pdf_y + self._ascent_pt(action['fontsize'])
             page.insert_text(
                 fitz.Point(pdf_x, baseline_y),
                 action['text'],
@@ -719,10 +759,16 @@ class VisualPDFEditor:
                 color=action['color']
             )
         elif action['type'] == 'image':
-            pdf_w = action['render_w'] / self.zoom_level
-            pdf_h = action['render_h'] / self.zoom_level
-            rect = fitz.Rect(pdf_x, pdf_y, pdf_x + pdf_w, pdf_y + pdf_h)
-            page.insert_image(rect, filename=action['filepath'])
+            rect = fitz.Rect(
+                pdf_x, pdf_y,
+                pdf_x + action['pdf_w'], pdf_y + action['pdf_h']
+            )
+            # keep_proportion=False: as alcas permitem esticar a imagem na
+            # tela, e o padrao do insert_image (True) reimpunha a proporcao
+            # original ao salvar, encolhendo a imagem dentro do retangulo.
+            page.insert_image(
+                rect, filename=action['filepath'], keep_proportion=False
+            )
 
     # ─── Salvar ───────────────────────────────────────────────────
 
@@ -870,7 +916,99 @@ class VisualPDFEditor:
         )
 
 
+def _selftest():
+    """Edita e salva um PDF de teste sem abrir a janela.
+
+    Confere um build do PyInstaller de verdade: cria uma pagina, insere um
+    texto e uma imagem pelo mesmo caminho do botao Salvar, le o resultado e
+    confere a geometria. Retorna o codigo de saida do processo.
+    """
+    import tempfile
+
+    tmp = tempfile.mkdtemp(prefix="pdfed-selftest-")
+    pdf_path = os.path.join(tmp, "base.pdf")
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.save(pdf_path)
+    doc.close()
+
+    img_path = os.path.join(tmp, "stamp.png")
+    Image.new("RGB", (400, 200), (200, 30, 30)).save(img_path)
+
+    root = tk.Tk()
+    root.withdraw()
+    app = VisualPDFEditor(root)
+    app.filepath = pdf_path
+    app.pdf_document = fitz.open(pdf_path)
+    app.current_page = 0
+    app.zoom_level = 2.0
+    app.actions = [
+        {'type': 'text', 'page': 0, 'pdf_x': 100.0, 'pdf_y': 200.0,
+         'text': "Selftest", 'fontsize': 24, 'color': (0.0, 0.0, 0.0)},
+        {'type': 'image', 'page': 0, 'pdf_x': 120.0, 'pdf_y': 420.0,
+         'img_width': 400, 'img_height': 200, 'pdf_w': 200.0, 'pdf_h': 100.0,
+         'filepath': img_path},
+    ]
+
+    out_path = os.path.join(tmp, "out.pdf")
+    doc = fitz.open(pdf_path)
+    page = doc[0]
+    for action in app.actions:
+        app._burn_action_to_page(page, action)
+    doc.save(out_path)
+    doc.close()
+
+    ascent = app._ascent_pt(24)
+    app.pdf_document.close()
+    root.destroy()
+
+    doc = fitz.open(out_path)
+    page = doc[0]
+    spans = [sp for b in page.get_text("dict")["blocks"]
+             for ln in b.get("lines", []) for sp in ln["spans"]]
+    rects = [page.get_image_rects(info[0])[0] for info in page.get_images()]
+    doc.close()
+
+    problems = []
+    if len(spans) != 1:
+        problems.append("esperava 1 texto, achei %d" % len(spans))
+    else:
+        x, y = spans[0]["origin"]
+        if abs(x - 100.0) > 0.5 or abs(y - (200.0 + ascent)) > 0.5:
+            problems.append("texto em (%.2f, %.2f), esperado (100.00, %.2f)"
+                            % (x, y, 200.0 + ascent))
+    if len(rects) != 1:
+        problems.append("esperava 1 imagem, achei %d" % len(rects))
+    else:
+        r = rects[0]
+        if (abs(r.x0 - 120.0) > 0.5 or abs(r.y0 - 420.0) > 0.5
+                or abs(r.width - 200.0) > 0.5 or abs(r.height - 100.0) > 0.5):
+            problems.append("imagem em (%.2f, %.2f) %.2fx%.2f, esperado "
+                            "(120.00, 420.00) 200.00x100.00"
+                            % (r.x0, r.y0, r.width, r.height))
+
+    if problems:
+        print("SELFTEST FALHOU:")
+        for p in problems:
+            print("  - %s" % p)
+        return 1
+
+    print("Visual PDF Editor %s: selftest OK (texto e imagem salvos na "
+          "posicao certa)" % __version__)
+    return 0
+
+
 if __name__ == "__main__":
+    # Sai sem abrir a janela. Serve para checar um build do PyInstaller:
+    # se o executavel responde aqui, o tkinter, o PyMuPDF e o Pillow foram
+    # empacotados e carregaram direito.
+    if "--version" in sys.argv[1:]:
+        print(f"Visual PDF Editor {__version__}")
+        sys.exit(0)
+
+    if "--selftest" in sys.argv[1:]:
+        sys.exit(_selftest())
+
     root = tk.Tk()
     app = VisualPDFEditor(root)
     root.mainloop()
