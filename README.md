@@ -20,10 +20,13 @@ Ferramenta WYSIWYG leve construída em Python para edição visual de PDFs. Abra
 ## Instalação
 
 ```bash
-git clone https://github.com/seu-usuario/visual-pdf-editor.git
-cd visual-pdf-editor
+git clone https://github.com/jothas2000/pdf-editor.git
+cd pdf-editor
 pip install -r requirements.txt
 ```
+
+Se preferir não instalar o Python, baixe o executável pronto em
+[Releases](https://github.com/jothas2000/pdf-editor/releases).
 
 ## Como usar
 
@@ -54,16 +57,50 @@ python pdf_gui_editor.py
 | Botão do meio   | Arrastar tela (Pan)      |
 
 
-## Compilação e Deploy (Release)
+## Testes
+
+Os testes de geometria conferem, sem abrir janela, se a posição e o tamanho
+dos objetos no PDF salvo batem com o que aparece na tela — em vários níveis
+de zoom.
 
 ```bash
-pip install pyinstaller
-pyinstaller --noconsole --onefile pdf_gui_editor.py
+python tests/test_geometry.py
 ```
 
-- O executável será gerado em `dist/pdf_gui_editor.exe`.
-- Acesse o repositório no GitHub, vá em **Releases** > **Create a new release**.
-- Anexe o arquivo `dist/pdf_gui_editor.exe` manualmente e publique a release.
+## Compilação e Deploy (Release)
+
+```powershell
+python -m pip install -r requirements.txt pyinstaller
+python -m PyInstaller --noconsole --onefile --name "PDF-Editor" --clean `
+  --exclude-module numpy --exclude-module pandas --exclude-module scipy `
+  --exclude-module matplotlib pdf_gui_editor.py
+```
+
+- O executável será gerado em `dist/PDF-Editor.exe` (~44 MB, Python e
+  PyMuPDF embutidos).
+- `python -m PyInstaller` (em vez de só `pyinstaller`) evita o erro de
+  comando não encontrado quando o Scripts/ não está no PATH.
+- Os `--exclude-module` cortam bibliotecas pesadas que o PyInstaller
+  encontra instaladas no ambiente mas que o editor não usa. Sem eles o
+  executável passa de 110 MB.
+- Para conferir o build sem abrir a janela:
+
+  ```powershell
+  dist\PDF-Editor.exe --version    # confere se as libs foram empacotadas
+  dist\PDF-Editor.exe --selftest   # insere texto e imagem num PDF e confere
+  ```
+
+  Os dois saem com código 0 quando está tudo certo.
+- Feche o `.exe` antes de recompilar, senão o PyInstaller falha com o
+  arquivo em uso.
+- O Windows Defender às vezes marca executáveis `--onefile` como suspeitos.
+  É falso positivo.
+- Acesse o repositório no GitHub, vá em **Releases** > **Create a new release**
+  e anexe o `.exe`.
+
+## Histórico de versões
+
+Ver [CHANGELOG.md](CHANGELOG.md).
 
 ## Autor
 
